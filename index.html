@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+
+<!-- Fix null searches please -->
+
+<!-- AngularJS -->
+<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.15/angular.min.js"></script>
+<!-- Firebase -->
+<script src="https://cdn.firebase.com/js/client/2.2.4/firebase.js"></script>
+<!-- AngularFire -->
+<script src="https://cdn.firebase.com/libs/angularfire/1.2.0/angularfire.min.js"></script>
+
+<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.6/css/bootstrap.css"/>
+
+<title>Title of the document</title>
+</head>
+
+<body>
+
+	<div style="margin:50px" ng-app="infoCache">
+		<div ng-controller="viewController as viewMaster">
+
+			<div ng-controller="searchController" ng-show="viewMaster.showSearch">
+
+				<div class="form-group">
+					<div class="col-sm-12">
+						<input type="search"
+					       class="form-control" 
+					       placeholder="Search" 
+					       style="max-width:300px; display:inline"
+					       ng-model="search.query"
+					       ng-keydown="$event.keyCode == 13 && searchTags()"/>
+					    <input type="submit" class="btn btn-default" value="Search" ng-click="searchTags()"/>
+					    <a href="#" style="margin-left:15px" ng-click="viewMaster.displayAddForm()"><span class="glyphicon glyphicon-plus"></span></a>
+					</div>
+				</div>
+				
+				<br/>
+
+				<ul style="display:block; float:left">
+					<li ng-repeat="result in search.results">
+						<a style="cursor:pointer" ng-click="viewMaster.showStash(result.stash)">{{result.stash}}</a>
+					</li>
+				</ul>
+				
+				<br/><br/>
+			</div>
+
+			<form ng-controller="stashController" ng-show="viewMaster.showAdd">
+				<div class="form-group">
+					<div class="col-sm-12">
+						<input ng-model="stash.name" type="text" class="form-control" placeholder="Name" style="max-width:300px;">
+					</div>
+				</div>
+				<div class="form-group">
+					<div class="col-sm-12">
+						<textarea ng-model="stash.body" cols=40 rows=6 type="text" class="form-control" placeholder="You note goes here"></textarea>
+					</div>
+				</div>
+				<div class="form-group">
+					<div class="col-sm-12">
+						<input ng-model="stash.tags" type="text" class="form-control" placeholder="Tags">
+					</div>
+				</div>
+				<div class="form-group">
+					<div class="col-sm-12">
+						<button type="submit" class="btn btn-default" ng-click="addStash(); viewMaster.hideAddForm()">Add Note</button>
+					</div>
+				</div>
+			</form>
+
+			<div  ng-show="viewMaster.showDisplay" ng-model="viewMaster.displayData">
+				<a href="#" ng-click="viewMaster.displaySearch()"><span class="glyphicon glyphicon-arrow-left"></span></a>
+				<h3>{{viewMaster.stashName}}</h3>
+				<p>{{viewMaster.displayData.data}}</p>
+			</div>
+
+
+		</div>
+	<div>      
+
+	<script type="text/javascript">
+
+
+		var app = angular.module("infoCache", ["firebase"]);
+
+		app.controller("viewController", function($scope){
+
+			var stashesRef = new Firebase("https://infocache.firebaseio.com/stashes");
+
+			this.showSearch = true
+			this.showDisplay = false;
+			this.showAdd = false;
+
+			this.stashName;
+			this.displayData;
+
+			var that = this;
+			this.showStash = function(result){
+				this.showDisplay = true;
+				this.showAdd = false;
+				this.showSearch = false;
+
+				this.stashName = result;
+
+				stashesRef.child(result).once('value',function(snap){
+					that.displayData = snap.val();
+				});
+			};
+
+			this.displaySearch = function(){
+				this.showAdd = false;
+				this.showSearch = true;
+				this.showDisplay = false;
+			}
+
+			this.displayAddForm = function(){
+				this.showAdd = true
+			};
+
+			this.hideAddForm = function(){
+				this.showAdd = false
+			};
+
+		});
+
+		app.controller("stashController", function($scope,$firebaseObject){
+
+
+			var tagsRef = new Firebase("https://infocache.firebaseio.com/tags");
+			var stashesRef = new Firebase("https://infocache.firebaseio.com/stashes");
+
+			var tagsObject = $firebaseObject(tagsRef);
+			var stashesObject = $firebaseObject(stashesRef);
+
+			$scope.addStash = function(){
+
+				var terms = $scope.stash.tags.split(" ");
+				var name = $scope.stash.name.toLowerCase();
+				var body = $scope.stash.body;
+
+				stashesRef.child(name).once('value',function(snap){
+					if(snap.val())
+					{
+						//Throw error so that user can rename or replace
+						console.log("stash exists");
+					}
+					else
+					{
+						var tempTags = {};
+						for(var len = terms.length, i = 0; i < len; i++)
+						{
+							//make a object of tags
+							tempTags[terms[i].toLowerCase()] = true;
+
+							tagsRef.child(terms[i].toLowerCase() + '/stashes').once('value',function(dataSnap){
+								
+								console.log(dataSnap.val())
+								if(dataSnap.val() != null){
+									tagsObject[terms[i].toLowerCase()].stashes[name] = true;
+								}
+								else{
+									console.log("tag does not exist");
+									tagsObject[terms[i].toLowerCase()] = {
+										stashes: {
+											[name]:true
+										}
+									}
+								}
+								tagsObject.$save();
+							});
+						}
+
+						stashesObject[name] = {
+							data: body.toLowerCase(),
+							tags: tempTags
+						}
+
+						stashesObject.$save();
+					}
+
+
+					$scope.stash.tags = '';
+					$scope.stash.name = '';
+					$scope.stash.body = '';
+
+				});			
+			};
+		});
+
+
+
+		app.controller("searchController",function($scope, $firebaseObject, $timeout) {
+
+		    var tags = new Firebase("https://infocache.firebaseio.com/tags");
+		    var stashes = new Firebase("https://infocache.firebaseio.com/stashes");
+		    
+		    //to make sure all search steps have finished
+		    var asyncDefer = function(asyncCount, asyncRule, callback) {
+		        if (asyncCount >= asyncRule) {
+		            callback();
+		        }
+		    }
+		            
+		    $scope.searchTags = function() {
+		        //to make sure all search steps have finished, see asyncDefer
+		        var asyncCount = 0;
+		        var asyncRule;
+		        var searchTerms = [];
+		        var _relultsArray = [];
+		        var _resultsObject = {};
+		        $scope.search.results = [];
+		        $scope.search.debug = [];
+		        var userSearch = $scope.search.query.toLowerCase();
+		    
+		        var finishSearch = function() {
+		            for (var key in _resultsObject) {
+		                if (_resultsObject.hasOwnProperty(key)) {
+		                    _relultsArray.push(_resultsObject[
+		                        key]);
+		                }
+		            }
+
+		            //this keeps the dom up to date
+		            $timeout(function() {
+				      	$scope.search.results = _relultsArray;
+			         	$scope.search.results.sort(function(a, b) {
+			                return parseFloat(b.hits) - parseFloat(a.hits);
+			            });
+				    }, 0);
+		        }
+
+		        //Search stashes for total input, direct hit
+		        var stashRef = stashes.child(userSearch);
+		        stashRef.once('value', function(snap) {
+		            if (snap.val()) {
+		                var key = snap.key()
+		                
+		                //dont trust this, double check
+		                if (_resultsObject[key] === undefined) {
+		                    _resultsObject[key] = {
+		                        stash: key,
+		                        hits: 5
+		                    };
+		                } else {
+		                    _resultsObject[key].hits += 5;
+		                }
+		            }
+		            asyncCount++;
+		            asyncDefer(asyncCount, asyncRule, finishSearch);
+		        });
+		               
+		        searchTerms = userSearch.split(" ");
+		        searchTerms.push(userSearch);
+		        
+		        //Plus one because the entire user input counts as one term search as well
+		        asyncRule = searchTerms.length + 1;
+		        
+		        //Iterate through all search terms
+		        //Fix this it will not allow to search two word sentances
+		        for (var len = searchTerms.length,
+		            i = 0; i < len; i++) {
+		            $scope.search.debug.push(searchTerms[i]);
+		            var tagRef = tags.child(searchTerms[i] + "/stashes");
+		            tagRef.once('value', function(snap) {
+		                var tagStashes = snap.val();
+		                if (tagStashes) {
+		                    for (var key in tagStashes) {
+		                        if (tagStashes.hasOwnProperty(key)) {
+		                            if (_resultsObject[key] ===
+		                                undefined) {
+		                                _resultsObject[key] = {
+		                                    stash: key,
+		                                    hits: 1
+		                                };
+		                            } else {
+		                                _resultsObject[key].hits++;
+		                            }
+		                        }
+		                    }
+		                }
+		                asyncCount++;
+		                asyncDefer(asyncCount, asyncRule,finishSearch);
+		            });
+		        }
+		    }
+		});
+
+	</script>
+
+</body>
+
+</html>
